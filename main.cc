@@ -1,48 +1,69 @@
 // Network topology
-//
-//       n0    n1   n2   n3       n21
-//       |     |    |    |        |
-//       ================= ... ===
-//              LAN 10.0.0.x
+//  - Rede 200 x 200 com 1 AP e 2 nodes em um grid.
+//  - Nodes distantes 10m um do outro 
+//  - Max de 5 nodes por linha
 //
 // - Servidor em n0, clientes em n1 ... n21
 // - Todos os clientes pingam no servidor e em todos os outros clientes, um de cada vez
 
 #include <fstream>
 #include "ns3/core-module.h"
-#include "ns3/applications-module.h"
 #include "ns3/internet-module.h"
-#include "ns3/lr-wpan-helper.h"
-#include "ns3/lr-wpan-net-device.h"
-#include "ns3/lr-wpan-spectrum-value-helper.h"
-#include "ns3/spectrum-value.h"
-#include "ns3/sixlowpan-helper.h"
-#include "ns3/ipv6-address-helper.h"
+#include "ns3/internet-apps-module.h"
 #include "ns3/mobility-module.h"
+#include "ns3/spectrum-module.h"
+#include "ns3/propagation-module.h"
+#include "ns3/sixlowpan-module.h"
+#include "ns3/lr-wpan-module.h"
 
 #include "ns3/netanim-module.h"
-#include "ns3/v4ping-helper.h"
 
 using namespace ns3;
-NS_LOG_COMPONENT_DEFINE ("UdpClientsServerIOT");
+NS_LOG_COMPONENT_DEFINE ("WnetIIOTv1");
 
 int main (int argc, char *argv[]){
-    uint16_t numNodes = 5;
+    uint16_t numNodes = 2;
+    std::string animFile = "wnetIIOTv1-animation.xml";
 
-    //Permite mudar a quantidade de nodes clientes na propria chamada da aplicacao
-    CommandLine cmd;
-	cmd.AddValue ("numNodes", "Number of node devices", numNodes);
-	cmd.Parse (argc,argv);
-
-    NS_LOG_INFO ("Set up logging.");
-    //LogComponentEnable ("wnet-IIOT-1.0", LOG_LEVEL_ALL);
+    LogComponentEnable ("WnetIIOTv1", LOG_LEVEL_INFO);
 
     NS_LOG_INFO ("Create nodes.");
     NodeContainer nodes, apNode; //apNode salva o 'servidor'
-    nodes.Create(numNodes + 1);
+    nodes.Create(numNodes);
     apNode.Create(1);
+    NodeContainer allNodes(nodes, apNode); 
 
-    NodeContainer allNodes(nodes, apNode);
+    NS_LOG_INFO("Set up mobility.");
+    double distNodes = 10;
+	double nodesPerLine = 5;
+    double apPosX = 100, apPosY = 100;
+
+    MobilityHelper nodesMobility;
+    nodesMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+    nodesMobility.SetPositionAllocator("ns3::GridPositionAllocator",    
+        "MinX", DoubleValue(0.0),
+        "MinY", DoubleValue(0.0),
+        "DeltaX", DoubleValue(distNodes),
+        "DeltaY", DoubleValue(distNodes),
+        "GridWidth", UintegerValue(nodesPerLine),
+        "LayoutType", StringValue("RowFirst")
+    );
+    nodesMobility.Install(nodes);
+
+    MobilityHelper apMobilityHelper;
+    apMobilityHelper.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+	apMobilityHelper.Install(apNode);
+    Ptr<ConstantPositionMobilityModel> apMobility = apNode.Get(0)->GetObject<ConstantPositionMobilityModel>();
+	apMobility->SetPosition(Vector(apPosX, apPosY, 0.0));
+
+    NS_LOG_INFO("Set up and install LR-WPAN (layers 1 and 2)");
+    LrWpanHelper lrwpan;
+    NetDeviceContainer wpanDevices = lrwpan.Install(allNodes);
+    lrwpan.AssociateToPan(wpanDevices, 0); // associate nodes to the same PAN (id=0)
+
+    NS_LOG_INFO("Set up and install 6lowpan (layer 2)");
+    SixLowPanHelper sixlowpan; //6lowpan allows LR-WPAN to use IPv6
+    NetDeviceContainer netDevices = sixlowpan.Install(wpanDevices);
 
     NS_LOG_INFO("Install internet protocols stack.");
     InternetStackHelper internet;
@@ -50,63 +71,75 @@ int main (int argc, char *argv[]){
 	internet.SetIpv6StackInstall(true);
 	internet.Install(allNodes);
 
-    //Instala o enlace IEEE 802.15.4 - Low Rate WPAN
-    NS_LOG_INFO("Create and install Lr-WPAN channel.");
-    LrWpanHelper lrwpan(false);
-	NetDeviceContainer netDevices = lrwpan.Install(allNodes); 
-	lrwpan.AssociateToPan(netDevices, 0); //Associa os nodes dessa rede na PAN de ID = 0
-
-    NS_LOG_INFO("Create and install 6LowPAN."); 
-    SixLowPanHelper sixlowpan;  //6LoWPAN permite o Lrwpan usar IPv6
-    NetDeviceContainer sixNetDevices = sixlowpan.Install(netDevices);
-
     NS_LOG_INFO("Create and install IPv6 adresses.");
     Ipv6AddressHelper ipv6;
   	ipv6.SetBase (Ipv6Address ("2020:1::"), Ipv6Prefix (64));
-  	Ipv6InterfaceContainer interface = ipv6.Assign(sixNetDevices);
+  	Ipv6InterfaceContainer subnet1 = ipv6.Assign(netDevices);  //Cria rede com IP 2020:1:0:0:x:x:x:x
 
-    NS_LOG_INFO("Set up mobility.");
-    MobilityHelper mobility, apMobilityHelper;
+    NS_LOG_INFO("Setup and install ping applications.");
+    uint32_t packetSize = 10;
+    uint32_t maxPacketCount = 1;
+    Time interPacketInterval = Seconds (1.);
+    Ping6Helper ping6_N2N;
+    Ping6Helper ping6_N2AP;
+
+    //---- CHECKPOINT ----//
+    // Ainda não entendi muito bem como eh esse enderecamento com dois argumentos
+    // abaixo, nem como os endereços aparecem no Wireshark. Não foi setado range 
+    // para os nodes.
+    //ping node0 -> node1
+    ping6_N2N.SetLocal(subnet1.GetAddress(0, 1));
+    ping6_N2N.SetRemote(subnet1.GetAddress(1, 1));
+    ping6_N2N.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
+    ping6_N2N.SetAttribute ("Interval", TimeValue (interPacketInterval));
+    ping6_N2N.SetAttribute ("PacketSize", UintegerValue (packetSize));
+
+    //ping node0 -> AP
+    // ping6_N2AP.SetLocal(subnet1.GetAddress(0, 1));
+    // ping6_N2AP.SetRemote(subnet1.GetAddress(2, 1));
+    // ping6_N2AP.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
+    // ping6_N2AP.SetAttribute ("Interval", TimeValue (interPacketInterval));
+    // ping6_N2AP.SetAttribute ("PacketSize", UintegerValue (packetSize));
+
+    //ApplicationContainer apps_N2AP = ping6_N2AP.Install(nodes.Get(0));
+    ApplicationContainer apps_N2N = ping6_N2N.Install(nodes.Get(0));
+
+    // apps_N2AP.Start (Seconds (1.0));
+    // apps_N2AP.Stop (Seconds (10.0));
+    apps_N2N.Start (Seconds (2.0));
+    apps_N2N.Stop (Seconds (10.0));
+
+    NS_LOG_INFO("Setup tracing");
+    AsciiTraceHelper ascii;
+    lrwpan.EnableAsciiAll (ascii.CreateFileStream ("Ping-6LoW-lr-wpan.tr"));
+    lrwpan.EnablePcapAll (std::string ("Ping-6LoW-lr-wpan"), true);
+
+    NS_LOG_INFO("Setup animation");
+    AnimationInterface anim (animFile);
+
+    NS_LOG_INFO("Setup Simulator");
+    Simulator::Stop (Seconds (10));
+  
+    Simulator::Run ();
+    Simulator::Destroy ();
+
+    // --------- PARTE DO RANGE ----------//
+    // NS_LOG_INFO("Set AP range.");
+    // Ptr<Node> ap = apNode.Get(0);
+	// Ptr<LrWpanNetDevice> apnetdev = DynamicCast<LrWpanNetDevice>(ap->GetDevice(1)); //Faz cast de NetDevice para LrWpanNetDevice, mas pq pega o 1?
+	// auto apphy = apnetdev->GetPhy();
+	// LrWpanSpectrumValueHelper svh;
+	// Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity (9, 11); //Range of 200m according to lr-wpan-error-distance-plot
+	// apphy->SetTxPowerSpectralDensity(psd);
     
-    //Posiciona nodes em um grid, [nodesPerLine] nodes por linha e [squarePerNode] de distancia entre nodes adjacentes (nas duas dimensoes) 
-    // --------- DUVIDA ------------//
-    double squarePerNode = ceil(sqrt(40000/numNodes));
-	double nodesPerLine = ceil(200/squarePerNode);
-    // --------- DUVIDA ------------//
-    mobility.SetPositionAllocator("ns3::GridPositionAllocator",    
-        "MinX", DoubleValue(0.0),
-        "MinY", DoubleValue(0.0),
-        "DeltaX", DoubleValue(squarePerNode),
-        "DeltaY", DoubleValue(squarePerNode),
-        "GridWidth", UintegerValue(nodesPerLine),
-        "LayoutType", StringValue("RowFirst")
-    );
-    mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  	mobility.Install(nodes);
-
-    //Posiciona o AP no ponto 100,100
-    apMobilityHelper.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-	apMobilityHelper.Install(apNode);
-    Ptr<ConstantPositionMobilityModel> apMobility = apNode.Get(0)->GetObject<ConstantPositionMobilityModel>();
-	apMobility->SetPosition(Vector(100, 100, 0.0));
-
-    // --------- DUVIDA ----------//
-    NS_LOG_INFO("Set AP range.");
-    Ptr<Node> ap = apNode.Get(0);
-	Ptr<LrWpanNetDevice> apnetdev = DynamicCast<LrWpanNetDevice>(ap->GetDevice(1)); //Faz cast de NetDevice para LrWpanNetDevice, mas pq pega o 1?
-	auto apphy = apnetdev->GetPhy();
-	LrWpanSpectrumValueHelper svh;
-	Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity (9, 11); //Range of 200m according to lr-wpan-error-distance-plot
-	apphy->SetTxPowerSpectralDensity(psd);
-    
-    NS_LOG_INFO("Set nodes range.");
-    for (size_t i = 0; i < nodes.GetN(); i++){
-        Ptr<LrWpanNetDevice> nodenetdev = DynamicCast<LrWpanNetDevice>(nodes.Get(i)->GetDevice(1));
-		auto phy = nodenetdev->GetPhy();
-		LrWpanSpectrumValueHelper svh;
-		Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity(-10, 11); //Range of 50m according to lr-wpan-error-distance-plot
-		phy->SetTxPowerSpectralDensity(psd);
-    }
+    // NS_LOG_INFO("Set nodes range.");
+    // for (size_t i = 0; i < nodes.GetN(); i++){
+    //     Ptr<LrWpanNetDevice> nodenetdev = DynamicCast<LrWpanNetDevice>(nodes.Get(i)->GetDevice(1));
+	// 	auto phy = nodenetdev->GetPhy();
+	// 	LrWpanSpectrumValueHelper svh;
+	// 	Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity(-10, 11); //Range of 50m according to lr-wpan-error-distance-plot
+	// 	phy->SetTxPowerSpectralDensity(psd);
+    // }
     // --------- DUVIDA ----------//
 
     // --- APLICACOES --- //
