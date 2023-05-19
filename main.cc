@@ -98,16 +98,16 @@ int main (int argc, char *argv[]){
 	LrWpanSpectrumValueHelper svh;
 	Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity (9, 11); //Range of 200m according to lr-wpan-error-distance-plot
 	apphy->SetTxPowerSpectralDensity(psd);
-    // --------- DUVIDA ----------//
-
+    
     NS_LOG_INFO("Set nodes range.");
     for (size_t i = 0; i < nodes.GetN(); i++){
         Ptr<LrWpanNetDevice> nodenetdev = DynamicCast<LrWpanNetDevice>(nodes.Get(i)->GetDevice(1));
 		auto phy = nodenetdev->GetPhy();
 		LrWpanSpectrumValueHelper svh;
-		Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity (-10, 11); //Range of 50m according to lr-wpan-error-distance-plot
+		Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity(-10, 11); //Range of 50m according to lr-wpan-error-distance-plot
 		phy->SetTxPowerSpectralDensity(psd);
     }
+    // --------- DUVIDA ----------//
 
     // --- APLICACOES --- //
     // So existem aplicacoes ping nos clientes, no servidor nao ha aplicacao
