@@ -22,7 +22,7 @@ using namespace ns3;
 NS_LOG_COMPONENT_DEFINE ("WnetIIOTv1");
 
 int main (int argc, char *argv[]){
-    uint16_t numNodes = 1;
+    uint16_t numNodes = 5;
     std::string animFile = "wnetIIOTv1-animation.xml";
 
     LogComponentEnable ("WnetIIOTv1", LOG_LEVEL_INFO);
@@ -34,9 +34,9 @@ int main (int argc, char *argv[]){
     NodeContainer allNodes(nodes, apNode); 
 
     NS_LOG_INFO("Set up mobility.");
-    double distNodes = 10;
-	double nodesPerLine = 5;
-    double apPosX = 100, apPosY = 100;
+
+    double distNodes = ceil(sqrt(40000/numNodes)); 
+	double nodesPerLine = ceil(200/distNodes);
 
     MobilityHelper nodesMobility;
     nodesMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -50,6 +50,7 @@ int main (int argc, char *argv[]){
     );
     nodesMobility.Install(nodes);
 
+    double apPosX = 100, apPosY = 100;
     MobilityHelper apMobilityHelper;
     apMobilityHelper.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
 	apMobilityHelper.Install(apNode);
@@ -73,74 +74,65 @@ int main (int argc, char *argv[]){
 
     NS_LOG_INFO("Create and install IPv6 adresses.");
     Ipv6AddressHelper ipv6;
-  	ipv6.SetBase (Ipv6Address ("2020:1::"), Ipv6Prefix (64));
-  	Ipv6InterfaceContainer subnet1 = ipv6.Assign(netDevices);  //Cria rede com IP 2020:1:0:0:x:x:x:x
+  	//ipv6.SetBase (Ipv6Address ("2020:1::"), Ipv6Prefix (64));
+    ipv6.SetBase(Ipv6Address("2001:1::"), Ipv6Prefix(64));
+  	Ipv6InterfaceContainer subnet1 = ipv6.Assign(netDevices);  //Cria rede com IP global 2001:1:0:0:x:x:x:x
 
-    NS_LOG_INFO("Setup and install ping applications.");
-    uint32_t packetSize = 512;
-    uint32_t maxPacketCount = 1;
-    Time interPacketInterval = Seconds (1.);
-    Ping6Helper ping6_N2N;
-    Ping6Helper ping6_N2AP;
-
-    //---- CHECKPOINT ----//
-    // Ainda não entendi muito bem como eh esse enderecamento com dois argumentos
-    // abaixo, nem como os endereços aparecem no Wireshark. Não foi setado range 
-    // para os nodes.
-    //ping node0 -> node1
-    ping6_N2N.SetLocal(subnet1.GetAddress(0, 0));
-    ping6_N2N.SetRemote(subnet1.GetAddress(1, 0));
-    ping6_N2N.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
-    ping6_N2N.SetAttribute ("Interval", TimeValue (interPacketInterval));
-    ping6_N2N.SetAttribute ("PacketSize", UintegerValue (packetSize));
-
-    //ping node0 -> AP
-    // ping6_N2AP.SetLocal(subnet1.GetAddress(0, 1));
-    // ping6_N2AP.SetRemote(subnet1.GetAddress(2, 1));
-    // ping6_N2AP.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
-    // ping6_N2AP.SetAttribute ("Interval", TimeValue (interPacketInterval));
-    // ping6_N2AP.SetAttribute ("PacketSize", UintegerValue (packetSize));
-
-    //ApplicationContainer apps_N2AP = ping6_N2AP.Install(nodes.Get(0));
-    ApplicationContainer apps_N2N = ping6_N2N.Install(nodes.Get(0));
-
-    // apps_N2AP.Start (Seconds (1.0));
-    // apps_N2AP.Stop (Seconds (10.0));
-    apps_N2N.Start (Seconds (2.0));
-    apps_N2N.Stop (Seconds (10.0));
-
-    NS_LOG_INFO("Setup tracing");
-    AsciiTraceHelper ascii;
-    lrwpan.EnableAsciiAll (ascii.CreateFileStream ("wnet-IIOT-v1.tr"));
-    lrwpan.EnablePcapAll (std::string ("wnet-IIOT-v1"), true);
-
-    NS_LOG_INFO("Setup animation");
-    AnimationInterface anim (animFile);
-
+    //Testing the IPv6 adresses, getting the address directly from the nodes
     auto apAddress = apNode.Get(0)->GetObject<Ipv6>()->GetAddress(1, 0).GetAddress();
-    NS_LOG_INFO("AP: " << apAddress);
+    NS_LOG_INFO("AP: IP " << apAddress);
     for (size_t i = 0; i < nodes.GetN(); i++){
-		Ptr<MobilityModel> deviceMobility = nodes.Get(i)->GetObject<MobilityModel>();
-		double distance = deviceMobility->GetDistanceFrom(apMobility);
-
 		Ptr<Ipv6> ipv6 = nodes.Get(i)->GetObject<Ipv6>();
         Ipv6InterfaceAddress iaddr = ipv6->GetAddress(1, 0);
-        Ipv6Address ipAddr = iaddr.GetAddress();
+        Ipv6Address llipAddr = iaddr.GetAddress();
+        iaddr = ipv6->GetAddress(1, 1);
+        Ipv6Address glipAddr = iaddr.GetAddress();
 
-		NS_LOG_INFO("N: IP " << ipAddr << " D " << distance);
+		NS_LOG_INFO("Node " << i << ": \tll-IP " << llipAddr << "\tgl-IP " << glipAddr);
 	}
 
-    NS_LOG_INFO("Setup Simulator");
-    Simulator::Stop (Seconds (10));
-  
-    Simulator::Run ();
-    Simulator::Destroy ();
+    // NS_LOG_INFO("Setup and install ping6 applications.");
+    // uint32_t packetSize = 19;
+    // uint32_t maxPacketCount = 1;
+    // Time interPacketInterval = Seconds (1.);
+
+    //ping node0 -> AP
+    // int i = 0;
+    // Ping6Helper pingAP;
+    // Ptr<Ipv6> iNode = nodes.Get(i)->GetObject<Ipv6>();
+    // Ipv6InterfaceAddress iaddr = iNode->GetAddress(1,0);
+    // Ipv6Address nodeAddr = iaddr.GetAddress(); //node 0
+    
+    // pingAP.SetLocal(nodeAddr);
+    // pingAP.SetRemote(apAddress);
+    // pingAP.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
+    // pingAP.SetAttribute ("Interval", TimeValue (interPacketInterval));
+    // pingAP.SetAttribute ("PacketSize", UintegerValue (packetSize));
+
+    // ApplicationContainer apps = pingAP.Install(nodes.Get(0)); //instala no node 0
+    // apps.Start(Seconds(2.0));
+    // apps.Stop(Seconds(10.0));
+
+    //auto apAddress = apNode.Get(0)->GetObject<Ipv6>()->GetAddress(1, 0).GetAddress();
+    //NS_LOG_INFO("AP: " << apAddress);
+    // for (size_t i = 0; i < nodes.GetN(); i++){
+	// 	Ptr<MobilityModel> deviceMobility = nodes.Get(i)->GetObject<MobilityModel>();
+	// 	double distance = deviceMobility->GetDistanceFrom(apMobility);
+
+	// 	Ptr<Ipv6> ipv6 = nodes.Get(i)->GetObject<Ipv6>();
+    //     Ipv6InterfaceAddress iaddr = ipv6->GetAddress(1, 0);
+    //     Ipv6Address ipAddr = iaddr.GetAddress();
+
+	// 	NS_LOG_INFO("N: IP " << ipAddr << " D " << distance);
+	// }
+
 
     // --------- PARTE DO RANGE ----------//
     // NS_LOG_INFO("Set AP range.");
     // Ptr<Node> ap = apNode.Get(0);
 	// Ptr<LrWpanNetDevice> apnetdev = DynamicCast<LrWpanNetDevice>(ap->GetDevice(1)); //Faz cast de NetDevice para LrWpanNetDevice, mas pq pega o 1?
-	// auto apphy = apnetdev->GetPhy();
+    // auto apphy = apnetdev->GetPhy();
+    // NS_LOG_INFO("Aqui");
 	// LrWpanSpectrumValueHelper svh;
 	// Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity (9, 11); //Range of 200m according to lr-wpan-error-distance-plot
 	// apphy->SetTxPowerSpectralDensity(psd);
@@ -155,47 +147,19 @@ int main (int argc, char *argv[]){
     // }
     // --------- DUVIDA ----------//
 
-    // --- APLICACOES --- //
-    // So existem aplicacoes ping nos clientes, no servidor nao ha aplicacao
-    // Cada client tem numNodes-1 aplicacoes ping, cada uma com um endereco de destino (so nao tem a do proprio endereco)
-    // Cada aplicacao eh uma posicao do vetor pingApps
-    // NS_LOG_INFO("Set applications.");
-    // std::vector<ApplicationContainer> pingApps(numClients);
-    // for(uint16_t i = 0; i < numClients; ++i){
-    //     for(uint16_t j = 0; j < (numClients + 1); ++j){
-    //         if(j != i){
-    //             V4PingHelper pingHelperAux(interface.GetAddress(j)); //pinga inclusive no servidor
-    //             pingHelperAux.SetAttribute ("Verbose", BooleanValue (false));
-    //             pingHelperAux.SetAttribute ("Interval", TimeValue (Seconds(numClients)));
-    //             pingHelperAux.SetAttribute ("Size", UintegerValue (16));
-    //             pingApps[i].Add(pingHelperAux.Install(allNodes.Get(i))); // Instala ping(dest: j) no cliente i
-    //         }
-    //     }
-    //}
+    NS_LOG_INFO("Setup tracing");
+    AsciiTraceHelper ascii;
+    lrwpan.EnableAsciiAll(ascii.CreateFileStream ("wnet-IIOT-v1.tr"));
+    lrwpan.EnablePcapAll(std::string ("wnet-IIOT-v1"));
 
-    // Os nodes comecam a pingar com 1 segundo de diferenca
-    // pingApps[i] == aplicacao do cliente [i]
-    // for(uint16_t i = 0; i < numClients; ++i){
-    //     uint16_t appStart = 1.0 + 1.0*i;
-    //     pingApps[i].Start(Seconds(appStart));
-    //     pingApps[i].Stop(Seconds(appStart + (numClients) * 2 + 1.0)); //Termina apos enviar 3 pacotes
-    // }
-    
-    // TRACING
-    // AsciiTraceHelper ascii;
-    // csma.EnableAsciiAll (ascii.CreateFileStream ("clients-server-IOT.tr"));
-    // csma.EnablePcapAll ("clients-server-IOT.tr", false);
+    NS_LOG_INFO("Setup animation");
+    AnimationInterface anim (animFile);
 
-    // --- NETANIM --- //
-    // NS_LOG_INFO("Set animation.");
-    // AnimationInterface anim ("clients-server-IOT-anim.xml");
+    NS_LOG_INFO("Setup Simulator");
+    Simulator::Stop (Seconds (10.0));
+  
+    Simulator::Run ();
+    Simulator::Destroy ();
 
-    // uint32_t X0 = 20, Y0 = 20, x = 0, y = 0;
-    // for(uint32_t i= 0; i<numClients; ++i){
-    //     x = X0 + (10 * (i%5));
-    //     y = Y0 + (10 * int(i/5));
-    //     anim.SetConstantPosition(allNodes.Get(i), x, y);
-    // }
-    // anim.SetConstantPosition(allNodes.Get(numClients), (X0 + 20), (X0 - 20)); //server = node[numClients]
     return 0;
 }
