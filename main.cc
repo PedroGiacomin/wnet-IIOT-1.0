@@ -22,7 +22,7 @@ using namespace ns3;
 NS_LOG_COMPONENT_DEFINE ("WnetIIOTv1");
 
 int main (int argc, char *argv[]){
-    uint16_t numNodes = 2;
+    uint16_t numNodes = 1;
     std::string animFile = "wnetIIOTv1-animation.xml";
 
     LogComponentEnable ("WnetIIOTv1", LOG_LEVEL_INFO);
@@ -77,7 +77,7 @@ int main (int argc, char *argv[]){
   	Ipv6InterfaceContainer subnet1 = ipv6.Assign(netDevices);  //Cria rede com IP 2020:1:0:0:x:x:x:x
 
     NS_LOG_INFO("Setup and install ping applications.");
-    uint32_t packetSize = 10;
+    uint32_t packetSize = 512;
     uint32_t maxPacketCount = 1;
     Time interPacketInterval = Seconds (1.);
     Ping6Helper ping6_N2N;
@@ -88,8 +88,8 @@ int main (int argc, char *argv[]){
     // abaixo, nem como os endereços aparecem no Wireshark. Não foi setado range 
     // para os nodes.
     //ping node0 -> node1
-    ping6_N2N.SetLocal(subnet1.GetAddress(0, 1));
-    ping6_N2N.SetRemote(subnet1.GetAddress(1, 1));
+    ping6_N2N.SetLocal(subnet1.GetAddress(0, 0));
+    ping6_N2N.SetRemote(subnet1.GetAddress(1, 0));
     ping6_N2N.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
     ping6_N2N.SetAttribute ("Interval", TimeValue (interPacketInterval));
     ping6_N2N.SetAttribute ("PacketSize", UintegerValue (packetSize));
@@ -111,11 +111,24 @@ int main (int argc, char *argv[]){
 
     NS_LOG_INFO("Setup tracing");
     AsciiTraceHelper ascii;
-    lrwpan.EnableAsciiAll (ascii.CreateFileStream ("Ping-6LoW-lr-wpan.tr"));
-    lrwpan.EnablePcapAll (std::string ("Ping-6LoW-lr-wpan"), true);
+    lrwpan.EnableAsciiAll (ascii.CreateFileStream ("wnet-IIOT-v1.tr"));
+    lrwpan.EnablePcapAll (std::string ("wnet-IIOT-v1"), true);
 
     NS_LOG_INFO("Setup animation");
     AnimationInterface anim (animFile);
+
+    auto apAddress = apNode.Get(0)->GetObject<Ipv6>()->GetAddress(1, 0).GetAddress();
+    NS_LOG_INFO("AP: " << apAddress);
+    for (size_t i = 0; i < nodes.GetN(); i++){
+		Ptr<MobilityModel> deviceMobility = nodes.Get(i)->GetObject<MobilityModel>();
+		double distance = deviceMobility->GetDistanceFrom(apMobility);
+
+		Ptr<Ipv6> ipv6 = nodes.Get(i)->GetObject<Ipv6>();
+        Ipv6InterfaceAddress iaddr = ipv6->GetAddress(1, 0);
+        Ipv6Address ipAddr = iaddr.GetAddress();
+
+		NS_LOG_INFO("N: IP " << ipAddr << " D " << distance);
+	}
 
     NS_LOG_INFO("Setup Simulator");
     Simulator::Stop (Seconds (10));
@@ -184,12 +197,5 @@ int main (int argc, char *argv[]){
     //     anim.SetConstantPosition(allNodes.Get(i), x, y);
     // }
     // anim.SetConstantPosition(allNodes.Get(numClients), (X0 + 20), (X0 - 20)); //server = node[numClients]
-
-    // --- EXECUCAO --- //
-    NS_LOG_INFO("Run simulation.");
-    Simulator::Run ();
-    Simulator::Destroy ();
-    NS_LOG_INFO ("Done.");
-
     return 0;
 }
